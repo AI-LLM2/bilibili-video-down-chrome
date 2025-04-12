@@ -29,11 +29,7 @@ const API_CONFIG = {
     'Accept': '*/*',
     'Accept-Language': 'zh-CN,zh;q=0.9',
     'Origin': 'https://www.bilibili.com',
-    'Referer': 'https://www.bilibili.com',
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'same-site',
-    'User-Agent': navigator.userAgent
+    'Referer': 'https://www.bilibili.com'
   }
 };
 
@@ -207,6 +203,9 @@ async function getPlayUrl(videoInfo, userInfo) {
       otype: 'json'
     });
 
+    // 添加延迟以避免请求过于频繁
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
     const response = await fetch(`${API_CONFIG.BASE_URL}/x/player/playurl?${params.toString()}`, {
       method: 'GET',
       credentials: 'include',
@@ -261,28 +260,24 @@ async function prepareDownload(playData, videoInfo) {
     debug(`选择视频流: ${videoStream.id} - ${videoStream.codecs} - ${videoStream.width}x${videoStream.height}`);
     debug(`选择音频流: ${audioStream.id} - ${Math.round(audioStream.bandwidth / 1000)}kbps`);
     
-    // 更新URL中的deadline参数
-    const updateDeadline = (url) => {
-      const urlObj = new URL(url);
-      const newDeadline = Math.floor(Date.now() / 1000) + 3600;
-      urlObj.searchParams.set('deadline', newDeadline);
-      return urlObj.toString();
-    };
-    
     // 构建下载文件名
-    const quality = `${videoStream.height}p${videoStream.frameRate > 30 ? videoStream.frameRate : ''}`;
-    const codec = videoStream.codecs.split('.')[0];
-    const filename = `${videoInfo.title}_${quality}_${codec}.mp4`
+    const filename = `${videoInfo.title}_${videoStream.width}x${videoStream.height}.mp4`
       .replace(/[\\/:*?"<>|]/g, '_'); // 替换非法字符
     
+    // 构建安全的请求头
+    const safeHeaders = {
+      'Accept': '*/*',
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+      'Origin': 'https://www.bilibili.com',
+      'Referer': `https://www.bilibili.com/video/${videoInfo.bvid}`,
+      'User-Agent': navigator.userAgent
+    };
+    
     return {
-      video: updateDeadline(videoStream.baseUrl),
-      audio: updateDeadline(audioStream.baseUrl),
+      videoUrl: videoStream.baseUrl,
+      audioUrl: audioStream.baseUrl,
       filename,
-      quality,
-      videoCodec: videoStream.codecs,
-      resolution: `${videoStream.width}x${videoStream.height}`,
-      fps: videoStream.frameRate
+      headers: safeHeaders
     };
   } catch (error) {
     debug('准备下载信息失败: ' + error.message);
@@ -306,30 +301,13 @@ async function startDownload() {
     // 准备下载信息
     const downloadInfo = await prepareDownload(playData, videoInfo);
     
-    // 构建下载请求headers
-    const headers = await buildHeaders({
-      'Accept': '*/*',
-      'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Range': 'bytes=0-',
-      'Sec-Fetch-Dest': 'empty',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Site': 'cross-site',
-      'Connection': 'keep-alive',
-      'DNT': '1'
-    });
-    
     // 发送下载请求
     chrome.runtime.sendMessage({
       action: 'download',
-      videoUrl: downloadInfo.video,
-      audioUrl: downloadInfo.audio,
-      filename: downloadInfo.filename,
-      headers
+      ...downloadInfo
     }, (response) => {
       if (response && response.success) {
         debug(`下载已开始: ${downloadInfo.filename}`);
-        debug(`视频信息: ${downloadInfo.resolution}@${downloadInfo.fps}fps (${downloadInfo.videoCodec})`);
       } else {
         debug('下载请求失败: ' + (response ? response.error : '未知错误'));
       }

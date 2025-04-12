@@ -77,12 +77,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
         'Origin': 'https://www.bilibili.com',
         'Referer': 'https://www.bilibili.com',
         'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-site'
+        'Accept-Language': 'zh-CN,zh;q=0.9'
       };
       
       for (const [name, value] of Object.entries(requiredHeaders)) {
@@ -100,7 +95,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
       'https://*.bilivideo.com/*'
     ]
   },
-  ['blocking', 'requestHeaders', 'extraHeaders']
+  ['blocking', 'requestHeaders']
 );
 
 // 监听下载状态
