@@ -345,7 +345,7 @@ async function startDownload() {
 async function injectDownloadButton() {
   try {
     // 等待工具栏加载
-    const container = await new Promise(resolve => {
+    const container = await new Promise((resolve) => {
       const observer = new MutationObserver((mutations, obs) => {
         const toolbar = document.querySelector('.video-toolbar-left');
         if (toolbar) {
@@ -368,22 +368,34 @@ async function injectDownloadButton() {
     });
     
     if (container) {
+      // 检查是否已经存在下载按钮
+      const existingButton = container.querySelector('.bili-download-button');
+      if (existingButton) {
+        debug('下载按钮已存在');
+        return;
+      }
+      
       const button = document.createElement('div');
-      button.className = 'video-toolbar-left-item';
+      button.className = 'video-toolbar-left-item bili-download-button';
       button.innerHTML = '<span class="video-toolbar-item-text">下载视频</span>';
-      button.onclick = () => {
-        button.style.pointerEvents = 'none';
-        button.querySelector('span').textContent = '准备下载...';
-        
-        startDownload()
-          .catch(error => {
-            debug('下载失败: ' + error.message);
-            alert('下载失败: ' + error.message);
-          })
-          .finally(() => {
-            button.style.pointerEvents = '';
+      
+      button.onclick = async () => {
+        try {
+          button.style.pointerEvents = 'none';
+          button.querySelector('span').textContent = '准备下载...';
+          
+          await startDownload();
+          
+          button.querySelector('span').textContent = '下载视频';
+        } catch (error) {
+          debug('下载失败: ' + error.message);
+          button.querySelector('span').textContent = '下载失败';
+          setTimeout(() => {
             button.querySelector('span').textContent = '下载视频';
-          });
+          }, 2000);
+        } finally {
+          button.style.pointerEvents = '';
+        }
       };
       
       container.appendChild(button);
@@ -398,14 +410,38 @@ async function injectDownloadButton() {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'downloadVideo') {
     debug('收到下载请求');
-    startDownload()
-      .then(() => sendResponse({ success: true }))
-      .catch(error => sendResponse({ success: false, error: error.message }));
+    
+    // 使用Promise包装异步操作
+    const promise = startDownload()
+      .then(() => ({ success: true }))
+      .catch(error => ({ success: false, error: error.message }));
+    
+    // 保持消息通道开放
+    promise.then(sendResponse);
     return true;
   }
 });
 
 // 页面加载完成后注入按钮
-window.addEventListener('load', () => {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', injectDownloadButton);
+} else {
   injectDownloadButton();
+}
+
+// 监听页面变化
+const observer = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+      const videoPage = document.querySelector('.video-container');
+      if (videoPage) {
+        injectDownloadButton();
+      }
+    }
+  }
+});
+
+observer.observe(document.body, {
+  childList: true,
+  subtree: true
 }); 

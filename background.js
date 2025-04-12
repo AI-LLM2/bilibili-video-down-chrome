@@ -33,12 +33,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'download') {
-    const { video, audio, filename, headers } = request;
+    const { videoUrl, audioUrl, filename, headers } = request;
     
     // 下载视频
     chrome.downloads.download({
-      url: video.url,
-      filename: `${filename}_video.${video.type.split('/')[1]}`,
+      url: videoUrl,
+      filename: `${filename}_video.mp4`,
       headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
     }, (downloadId) => {
       if (chrome.runtime.lastError) {
@@ -49,8 +49,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       
       // 下载音频
       chrome.downloads.download({
-        url: audio.url,
-        filename: `${filename}_audio.${audio.type.split('/')[1]}`,
+        url: audioUrl,
+        filename: `${filename}_audio.m4a`,
         headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
       }, (audioDownloadId) => {
         if (chrome.runtime.lastError) {
@@ -75,7 +75,14 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
       // 确保包含必要的请求头
       const requiredHeaders = {
         'Origin': 'https://www.bilibili.com',
-        'Referer': 'https://www.bilibili.com'
+        'Referer': 'https://www.bilibili.com',
+        'Accept': '*/*',
+        'Accept-Language': 'zh-CN,zh;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'same-site'
       };
       
       for (const [name, value] of Object.entries(requiredHeaders)) {
@@ -95,6 +102,15 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
   },
   ['blocking', 'requestHeaders', 'extraHeaders']
 );
+
+// 监听下载状态
+chrome.downloads.onChanged.addListener((delta) => {
+  if (delta.state && delta.state.current === 'complete') {
+    console.log('下载完成:', delta.id);
+  } else if (delta.state && delta.state.current === 'interrupted') {
+    console.error('下载中断:', delta.id);
+  }
+});
 
 // 下载处理函数
 async function handleDownload(request, sendResponse) {
