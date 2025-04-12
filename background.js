@@ -34,48 +34,178 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   
   if (request.action === 'download') {
     debug('收到下载请求: ' + request.filename);
+    debug('视频URL: ' + request.videoUrl);
+    debug('音频URL: ' + request.audioUrl);
     
-    try {
-      const { videoUrl, audioUrl, filename, headers } = request;
-      
-      // 下载视频
-      chrome.downloads.download({
-        url: videoUrl,
-        filename: `${filename}_video.mp4`,
-        headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
-      }, (downloadId) => {
-        if (chrome.runtime.lastError) {
-          debug('下载视频失败: ' + chrome.runtime.lastError.message);
-          sendResponse({ error: chrome.runtime.lastError.message });
-          return;
-        }
-        
-        debug('开始下载视频: ' + downloadId);
-        
-        // 下载音频
-        chrome.downloads.download({
-          url: audioUrl,
-          filename: `${filename}_audio.m4a`,
-          headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
-        }, (audioDownloadId) => {
-          if (chrome.runtime.lastError) {
-            debug('下载音频失败: ' + chrome.runtime.lastError.message);
-            sendResponse({ error: chrome.runtime.lastError.message });
-            return;
-          }
-          
-          debug('开始下载音频: ' + audioDownloadId);
-          sendResponse({ success: true, videoId: downloadId, audioId: audioDownloadId });
-        });
-      });
-    } catch (error) {
-      debug('处理下载请求失败: ' + error.message);
-      sendResponse({ error: error.message });
-    }
-    
+    // 使用fetch API下载
+    handleFetchDownload(request, sendResponse);
     return true; // 保持消息通道开放
   }
 });
+
+// 使用Fetch API下载
+async function handleFetchDownload(request, sendResponse) {
+  try {
+    debug('开始处理下载');
+    debug(`文件名: ${request.filename}`);
+    debug(`视频URL: ${request.videoUrl}`);
+    debug(`音频URL: ${request.audioUrl}`);
+    
+    // 打印传入的请求头
+    debug('收到请求头: ' + JSON.stringify(request.headers));
+    
+    // 验证URL是否可访问
+    debug('开始验证URL可访问性');
+    
+    // 使用HEAD请求验证URL
+    async function validateUrl(url, type) {
+      try {
+        debug(`验证${type}URL: ${url}`);
+        const testResponse = await fetch(url, {
+          method: 'HEAD',
+          headers: request.headers,
+          credentials: 'include'
+        });
+        
+        if (testResponse.ok) {
+          debug(`${type}URL验证成功: HTTP ${testResponse.status}`);
+          
+          // 获取内容长度
+          const contentLength = testResponse.headers.get('content-length');
+          if (contentLength) {
+            const sizeMB = (parseInt(contentLength) / (1024 * 1024)).toFixed(2);
+            debug(`${type}文件大小: ${sizeMB} MB`);
+          }
+          
+          // 获取内容类型
+          const contentType = testResponse.headers.get('content-type');
+          if (contentType) {
+            debug(`${type}内容类型: ${contentType}`);
+          }
+          
+          return true;
+        } else {
+          debug(`${type}URL验证失败: HTTP ${testResponse.status}`);
+          return false;
+        }
+      } catch (error) {
+        debug(`${type}URL验证出错: ${error.message}`);
+        return false;
+      }
+    }
+    
+    const videoValid = await validateUrl(request.videoUrl, '视频');
+    const audioValid = await validateUrl(request.audioUrl, '音频');
+    
+    if (!videoValid || !audioValid) {
+      debug('URL验证失败，尝试继续下载');
+    }
+    
+    // 下载视频
+    debug('开始下载视频流');
+    let videoResponse;
+    try {
+      videoResponse = await fetch(request.videoUrl, {
+        method: 'GET',
+        headers: request.headers,
+        credentials: 'include'
+      });
+      
+      if (!videoResponse.ok) {
+        throw new Error(`视频HTTP ${videoResponse.status}`);
+      }
+      
+      debug('视频响应成功: ' + videoResponse.status);
+      
+      // 打印响应头
+      debug('视频响应头:');
+      videoResponse.headers.forEach((value, name) => {
+        debug(`  ${name}: ${value}`);
+      });
+    } catch (error) {
+      debug('视频下载失败: ' + error.message);
+      sendResponse({ success: false, error: '视频下载失败: ' + error.message });
+      return;
+    }
+    
+    // 下载音频
+    debug('开始下载音频流');
+    let audioResponse;
+    try {
+      audioResponse = await fetch(request.audioUrl, {
+        method: 'GET',
+        headers: request.headers,
+        credentials: 'include'
+      });
+      
+      if (!audioResponse.ok) {
+        throw new Error(`音频HTTP ${audioResponse.status}`);
+      }
+      
+      debug('音频响应成功: ' + audioResponse.status);
+      
+      // 打印响应头
+      debug('音频响应头:');
+      audioResponse.headers.forEach((value, name) => {
+        debug(`  ${name}: ${value}`);
+      });
+    } catch (error) {
+      debug('音频下载失败: ' + error.message);
+      sendResponse({ success: false, error: '音频下载失败: ' + error.message });
+      return;
+    }
+    
+    // 获取blob
+    debug('正在读取视频数据...');
+    const videoBlob = await videoResponse.blob();
+    debug(`视频数据读取完成，大小: ${(videoBlob.size / (1024 * 1024)).toFixed(2)} MB`);
+    
+    debug('正在读取音频数据...');
+    const audioBlob = await audioResponse.blob();
+    debug(`音频数据读取完成，大小: ${(audioBlob.size / (1024 * 1024)).toFixed(2)} MB`);
+    
+    // 合并音视频
+    debug('开始合并音视频');
+    const combinedBlob = new Blob([videoBlob, audioBlob], { type: 'video/mp4' });
+    debug(`合并后文件大小: ${(combinedBlob.size / (1024 * 1024)).toFixed(2)} MB`);
+    
+    const blobUrl = URL.createObjectURL(combinedBlob);
+    
+    // 下载合并后的文件
+    chrome.downloads.download({
+      url: blobUrl,
+      filename: request.filename,
+      saveAs: true
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        debug('下载出错: ' + chrome.runtime.lastError.message);
+        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+      } else {
+        debug('下载已开始: ' + downloadId);
+        sendResponse({ success: true, downloadId });
+        
+        // 监听下载完成
+        chrome.downloads.onChanged.addListener(function onDownloadChanged(delta) {
+          if (delta.id === downloadId && delta.state) {
+            if (delta.state.current === 'complete') {
+              debug('下载完成');
+              URL.revokeObjectURL(blobUrl);
+              chrome.downloads.onChanged.removeListener(onDownloadChanged);
+            } else if (delta.state.current === 'interrupted') {
+              debug('下载中断: ' + (delta.error ? delta.error.current : '未知错误'));
+              URL.revokeObjectURL(blobUrl);
+              chrome.downloads.onChanged.removeListener(onDownloadChanged);
+            }
+          }
+        });
+      }
+    });
+    
+  } catch (error) {
+    debug('下载处理失败: ' + error.message);
+    sendResponse({ success: false, error: error.message });
+  }
+}
 
 // 监听 webRequest 以修改请求头
 chrome.webRequest.onBeforeSendHeaders.addListener(

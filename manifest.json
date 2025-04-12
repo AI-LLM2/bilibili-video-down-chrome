@@ -4,13 +4,14 @@
   "version": "1.0",
   "description": "Download Bilibili videos with high quality",
   "permissions": [
+    "storage",
     "downloads",
     "cookies",
+    "tabs",
     "webRequest",
     "webRequestBlocking",
-    "https://*.bilibili.com/*",
-    "https://api.bilibili.com/*",
-    "https://*.bilivideo.com/*"
+    "*://*.bilibili.com/*",
+    "*://*.bilivideo.com/*"
   ],
   "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
   "host_permissions": [

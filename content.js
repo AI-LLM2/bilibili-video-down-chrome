@@ -63,6 +63,13 @@ async function getAllCookies() {
             cookieObj[cookie.name] = cookie.value;
           });
           debug('成功获取cookies');
+          
+          // 添加打印所有cookie的详细信息
+          debug('Cookie详情:');
+          response.cookies.forEach(cookie => {
+            debug(`  ${cookie.name}: domain=${cookie.domain}, path=${cookie.path}, httpOnly=${cookie.httpOnly}, secure=${cookie.secure}`);
+          });
+          
           resolve(cookieObj);
         } else {
           debug('获取cookies失败: 响应格式错误');
@@ -84,6 +91,8 @@ async function buildHeaders(extraHeaders = {}) {
     return {
       ...API_CONFIG.DEFAULT_HEADERS,
       'Cookie': cookieString,
+      'User-Agent': navigator.userAgent,
+      'Range': 'bytes=0-',
       ...extraHeaders
     };
   } catch (error) {
@@ -164,6 +173,11 @@ async function getUserInfo() {
       allowedQualities: []
     };
     
+    // VIP类型说明
+    let vipTypeStr = "无VIP";
+    if (userInfo.vipType === 1) vipTypeStr = "大会员";
+    if (userInfo.vipType === 2) vipTypeStr = "年度大会员";
+    
     // 确定用户可用的视频质量
     for (const [qn, info] of Object.entries(API_CONFIG.QUALITY_LEVELS)) {
       if (
@@ -176,7 +190,7 @@ async function getUserInfo() {
       }
     }
     
-    debug(`用户信息: 登录=${userInfo.isLogin}, VIP=${userInfo.vipType}, 可用质量=${userInfo.allowedQualities.join(',')}`);
+    debug(`用户信息: 登录=${userInfo.isLogin}, VIP=${userInfo.vipType}(${vipTypeStr}), VIP状态=${userInfo.vipStatus}, 可用质量=${userInfo.allowedQualities.join(',')}`);
     return userInfo;
   } catch (error) {
     debug('获取用户信息失败: ' + error.message);
@@ -259,18 +273,23 @@ async function prepareDownload(playData, videoInfo) {
     
     debug(`选择视频流: ${videoStream.id} - ${videoStream.codecs} - ${videoStream.width}x${videoStream.height}`);
     debug(`选择音频流: ${audioStream.id} - ${Math.round(audioStream.bandwidth / 1000)}kbps`);
+    debug(`视频URL: ${videoStream.baseUrl}`);
+    debug(`音频URL: ${audioStream.baseUrl}`);
+    
+    // 验证URL是否有效
+    await validateUrl(videoStream.baseUrl, '视频');
+    await validateUrl(audioStream.baseUrl, '音频');
     
     // 构建下载文件名
     const filename = `${videoInfo.title}_${videoStream.width}x${videoStream.height}.mp4`
       .replace(/[\\/:*?"<>|]/g, '_'); // 替换非法字符
     
-    // 构建安全的请求头
+    // 构建安全的请求头 - 只使用标准HTTP头
     const safeHeaders = {
       'Accept': '*/*',
       'Accept-Language': 'zh-CN,zh;q=0.9',
-      'Origin': 'https://www.bilibili.com',
-      'Referer': `https://www.bilibili.com/video/${videoInfo.bvid}`,
-      'User-Agent': navigator.userAgent
+      'Referer': 'https://www.bilibili.com',
+      'Origin': 'https://www.bilibili.com'
     };
     
     return {
@@ -282,6 +301,42 @@ async function prepareDownload(playData, videoInfo) {
   } catch (error) {
     debug('准备下载信息失败: ' + error.message);
     throw error;
+  }
+}
+
+// 验证URL是否有效
+async function validateUrl(url, type) {
+  try {
+    debug(`验证${type}URL: ${url}`);
+    
+    // 解析URL参数
+    const urlObj = new URL(url);
+    debug(`${type}URL参数:`);
+    urlObj.searchParams.forEach((value, key) => {
+      debug(`  ${key}: ${value}`);
+    });
+    
+    // 检查关键参数
+    const deadline = urlObj.searchParams.get('deadline');
+    if (deadline) {
+      const now = Math.floor(Date.now() / 1000);
+      const deadlineTime = parseInt(deadline);
+      const remainingTime = deadlineTime - now;
+      
+      debug(`${type}URL过期时间: ${new Date(deadlineTime * 1000).toLocaleString()}`);
+      debug(`${type}URL剩余有效期: ${Math.floor(remainingTime / 60)} 分钟`);
+      
+      if (remainingTime < 0) {
+        debug(`警告：${type}URL已过期!`);
+      } else if (remainingTime < 300) {
+        debug(`警告：${type}URL即将过期!`);
+      }
+    }
+    
+    return true;
+  } catch (error) {
+    debug(`验证${type}URL失败: ${error.message}`);
+    return false;
   }
 }
 
@@ -301,10 +356,32 @@ async function startDownload() {
     // 准备下载信息
     const downloadInfo = await prepareDownload(playData, videoInfo);
     
+    // 创建专门用于下载的请求头
+    const downloadHeaders = {
+      'Accept': '*/*',
+      'Accept-Language': 'zh-CN,zh;q=0.9',
+      'Referer': 'https://www.bilibili.com',
+      'Origin': 'https://www.bilibili.com',
+      'User-Agent': navigator.userAgent
+    };
+    
+    // 添加Cookie字符串
+    const cookies = await getAllCookies();
+    const cookieString = Object.entries(cookies)
+      .map(([name, value]) => `${name}=${value}`)
+      .join('; ');
+    
+    if (cookieString) {
+      downloadHeaders['Cookie'] = cookieString;
+    }
+    
+    debug('下载专用请求头: ' + JSON.stringify(downloadHeaders));
+    
     // 发送下载请求
     chrome.runtime.sendMessage({
       action: 'download',
-      ...downloadInfo
+      ...downloadInfo,
+      headers: downloadHeaders  // 使用专门为下载创建的请求头
     }, (response) => {
       if (response && response.success) {
         debug(`下载已开始: ${downloadInfo.filename}`);
