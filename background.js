@@ -52,20 +52,23 @@ function downloadMedia(request, sendResponse) {
     debug('视频下载URL: ' + request.videoUrl);
     debug('音频下载URL: ' + request.audioUrl);
     
-    // 格式化请求头为chrome.downloads需要的格式
-    const headers = [];
-    for (const [name, value] of Object.entries(request.headers)) {
-      headers.push({ name, value });
-    }
+    // 格式化请求头为chrome.downloads需要的格式，只保留安全的头部
+    const safeHeaders = [
+      { name: 'Accept', value: '*/*' },
+      { name: 'Accept-Language', value: 'zh-CN,zh;q=0.9' },
+      { name: 'Referer', value: 'https://www.bilibili.com' },
+      { name: 'Origin', value: 'https://www.bilibili.com' },
+      { name: 'Range', value: 'bytes=0-' }
+    ];
     
-    debug('使用的请求头: ' + JSON.stringify(headers));
+    debug('使用的请求头: ' + JSON.stringify(safeHeaders));
     
     // 首先下载视频
     const videoFilename = request.filename.replace('.mp4', '_video.mp4');
     chrome.downloads.download({
       url: request.videoUrl,
       filename: videoFilename,
-      headers: headers,
+      headers: safeHeaders,
       conflictAction: 'uniquify'
     }, (videoDownloadId) => {
       if (chrome.runtime.lastError) {
@@ -81,7 +84,7 @@ function downloadMedia(request, sendResponse) {
       chrome.downloads.download({
         url: request.audioUrl,
         filename: audioFilename,
-        headers: headers,
+        headers: safeHeaders,
         conflictAction: 'uniquify'
       }, (audioDownloadId) => {
         if (chrome.runtime.lastError) {
