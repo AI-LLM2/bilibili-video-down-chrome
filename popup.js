@@ -1,56 +1,78 @@
-document.addEventListener('DOMContentLoaded', function() {
-  const downloadBtn = document.getElementById('downloadBtn');
-  const statusDiv = document.getElementById('status');
+document.addEventListener('DOMContentLoaded', () => {
+  const downloadBtn = document.getElementById('download-btn');
+  const statusEl = document.getElementById('status');
+  const qualitySelect = document.getElementById('quality-select');
+  const videoTitleEl = document.getElementById('video-title');
+  const notBilibiliEl = document.getElementById('not-bilibili');
+  const bilibiliVideoEl = document.getElementById('bilibili-video');
 
-  // 添加调试日志函数
-  function logStatus(message, isError = false) {
-    console.log(`[Popup] ${message}`);
-    statusDiv.textContent = message;
-    if (isError) {
-      statusDiv.style.color = 'red';
-    } else {
-      statusDiv.style.color = 'black';
+  // Check if we're on a Bilibili video page
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    const currentTab = tabs[0];
+    const url = currentTab.url;
+    
+    if (!url.match(/bilibili\.com\/video\//)) {
+      notBilibiliEl.classList.remove('hidden');
+      bilibiliVideoEl.classList.add('hidden');
+      return;
     }
-  }
 
-  downloadBtn.addEventListener('click', () => {
-    try {
-      logStatus('正在检查当前页面...');
+    // We're on a Bilibili video page, get the video info
+    chrome.tabs.sendMessage(currentTab.id, { action: 'getVideoInfo' }, (response) => {
+      if (chrome.runtime.lastError) {
+        statusEl.textContent = 'Error: Please refresh the page and try again.';
+        return;
+      }
+
+      if (!response || !response.success) {
+        statusEl.textContent = 'Error: Could not retrieve video information.';
+        return;
+      }
+
+      // Update UI with video info
+      videoTitleEl.textContent = response.title;
       
-      // Get the current active tab
-      chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-        const tab = tabs[0];
-        console.log('Current tab:', tab);
-        
-        if (!tab.url.includes('bilibili.com')) {
-          logStatus('请导航到Bilibili视频页面', true);
+      // Populate quality options
+      qualitySelect.innerHTML = '';
+      response.qualities.forEach(quality => {
+        const option = document.createElement('option');
+        option.value = quality.id;
+        option.textContent = quality.name;
+        qualitySelect.appendChild(option);
+      });
+    });
+  });
+
+  // Handle download button click
+  downloadBtn.addEventListener('click', () => {
+    downloadBtn.disabled = true;
+    statusEl.textContent = 'Requesting download...';
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const currentTab = tabs[0];
+      const qualityId = qualitySelect.value;
+
+      chrome.tabs.sendMessage(currentTab.id, { 
+        action: 'downloadVideo', 
+        qualityId: qualityId 
+      }, (response) => {
+        if (chrome.runtime.lastError || !response || !response.success) {
+          statusEl.textContent = 'Download failed. Please try again.';
+          downloadBtn.disabled = false;
           return;
         }
 
-        logStatus('正在获取视频信息...');
+        // If there's a specific message in the response, show it
+        if (response.message) {
+          statusEl.textContent = response.message;
+        } else {
+          statusEl.textContent = 'Download started!';
+        }
         
-        // Send message to content script to start download
-        chrome.tabs.sendMessage(tab.id, { action: 'downloadVideo' }, (response) => {
-          console.log('Response from content script:', response);
-          
-          if (chrome.runtime.lastError) {
-            console.error('Runtime error:', chrome.runtime.lastError);
-            logStatus(`错误: ${chrome.runtime.lastError.message}`, true);
-            return;
-          }
-
-          if (response && response.success) {
-            logStatus('下载已开始！');
-          } else {
-            const errorMessage = response?.error || '未知错误';
-            console.error('Download failed:', errorMessage);
-            logStatus(`下载失败: ${errorMessage}`, true);
-          }
-        });
+        setTimeout(() => {
+          downloadBtn.disabled = false;
+        }, 3000);
       });
-    } catch (error) {
-      console.error('Error in popup:', error);
-      logStatus(`错误: ${error.message}`, true);
-    }
+    });
   });
 }); 

@@ -2,23 +2,9 @@
   "manifest_version": 3,
   "name": "Bilibili Video Downloader",
   "version": "1.0",
-  "description": "Download Bilibili videos with high quality",
-  "permissions": [
-    "storage",
-    "downloads",
-    "cookies",
-    "tabs",
-    "webRequest",
-    "declarativeNetRequest",
-    "declarativeNetRequestFeedback"
-  ],
-  "host_permissions": [
-    "*://*.bilibili.com/*",
-    "*://*.bilivideo.com/*"
-  ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
-  },
+  "description": "Download videos from Bilibili",
+  "permissions": ["activeTab", "scripting", "downloads", "storage", "contextMenus"],
+  "host_permissions": ["*://*.bilibili.com/*"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -29,22 +15,16 @@
   },
   "content_scripts": [
     {
-      "matches": ["*://*.bilibili.com/*"],
-      "js": ["content.js"],
-      "run_at": "document_end"
+      "matches": ["*://*.bilibili.com/video/*"],
+      "js": ["content.js"]
     }
   ],
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "icons": {
     "16": "images/icon16.png",
     "48": "images/icon48.png",
     "128": "images/icon128.png"
-  },
-  "web_accessible_resources": [{
-    "resources": ["images/*"],
-    "matches": ["*://*.bilibili.com/*"]
-  }]
+  }
 } 
