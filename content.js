@@ -356,42 +356,36 @@ async function startDownload() {
     // 准备下载信息
     const downloadInfo = await prepareDownload(playData, videoInfo);
     
-    // 创建专门用于下载的请求头
-    const downloadHeaders = {
-      'Accept': '*/*',
-      'Accept-Language': 'zh-CN,zh;q=0.9',
-      'Referer': 'https://www.bilibili.com',
-      'Origin': 'https://www.bilibili.com',
-      'User-Agent': navigator.userAgent
+    // 不再传递完整的请求头，只传必要的信息
+    // background.js 会构建安全的请求头
+    const safeRequest = {
+      action: 'download',
+      videoUrl: downloadInfo.videoUrl,
+      audioUrl: downloadInfo.audioUrl,
+      filename: downloadInfo.filename
     };
     
-    // 添加Cookie字符串
-    const cookies = await getAllCookies();
-    const cookieString = Object.entries(cookies)
-      .map(([name, value]) => `${name}=${value}`)
-      .join('; ');
-    
-    if (cookieString) {
-      downloadHeaders['Cookie'] = cookieString;
-    }
-    
-    debug('下载专用请求头: ' + JSON.stringify(downloadHeaders));
+    debug('发送安全的下载请求');
     
     // 发送下载请求
-    chrome.runtime.sendMessage({
-      action: 'download',
-      ...downloadInfo,
-      headers: downloadHeaders  // 使用专门为下载创建的请求头
-    }, (response) => {
+    chrome.runtime.sendMessage(safeRequest, (response) => {
       if (response && response.success) {
         debug(`下载已开始: ${downloadInfo.filename}`);
+        
+        // 显示下载成功提示
+        showToast('下载已开始', 'success');
       } else {
-        debug('下载请求失败: ' + (response ? response.error : '未知错误'));
+        const errorMsg = response ? response.error : '未知错误';
+        debug('下载请求失败: ' + errorMsg);
+        
+        // 显示错误提示
+        showToast('下载失败: ' + errorMsg, 'error');
       }
     });
     
   } catch (error) {
     debug('下载过程失败: ' + error.message);
+    showToast('下载失败: ' + error.message, 'error');
     throw error;
   }
 }
@@ -522,4 +516,43 @@ if (document.readyState === 'loading') {
 } else {
   debug('DOM已加载，直接注入按钮');
   injectDownloadButton();
+}
+
+// 显示提示消息
+function showToast(message, type = 'info') {
+  // 创建提示元素
+  const toast = document.createElement('div');
+  toast.className = `bilibili-dl-toast bilibili-dl-toast-${type}`;
+  toast.textContent = message;
+  
+  // 设置样式
+  Object.assign(toast.style, {
+    position: 'fixed',
+    bottom: '20px',
+    right: '20px',
+    backgroundColor: type === 'error' ? '#f44336' : type === 'success' ? '#4caf50' : '#2196f3',
+    color: 'white',
+    padding: '16px',
+    borderRadius: '4px',
+    boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
+    zIndex: '10000',
+    opacity: '0',
+    transition: 'opacity 0.3s ease-in-out'
+  });
+  
+  // 添加到页面
+  document.body.appendChild(toast);
+  
+  // 显示动画
+  setTimeout(() => {
+    toast.style.opacity = '1';
+  }, 10);
+  
+  // 3秒后自动消失
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => {
+      document.body.removeChild(toast);
+    }, 300);
+  }, 3000);
 } 
