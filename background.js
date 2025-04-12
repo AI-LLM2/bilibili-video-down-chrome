@@ -11,10 +11,10 @@ chrome.runtime.onConnect.addListener((port) => {
   }
 });
 
-// 调试信息输出
-const debug = (message) => {
+// Debug logging
+function debug(message) {
   console.log('[Background][debug]', message);
-};
+}
 
 // 处理来自content script的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -37,127 +37,113 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     debug(`视频URL: ${request.videoUrl}`);
     debug(`音频URL: ${request.audioUrl}`);
     
-    // 直接使用chrome.downloads.download而不是fetch
     downloadMedia(request, sendResponse);
     return true; // 保持消息通道开放
   }
 });
 
+// 设置请求规则
+chrome.declarativeNetRequest.updateDynamicRules({
+  removeRuleIds: [1, 2, 3], // 移除旧规则
+  addRules: [{
+    id: 1,
+    priority: 1,
+    action: {
+      type: 'modifyHeaders',
+      requestHeaders: [
+        { header: 'Referer', operation: 'set', value: 'https://www.bilibili.com' },
+        { header: 'Origin', operation: 'set', value: 'https://www.bilibili.com' },
+        { header: 'Range', operation: 'set', value: 'bytes=0-' },
+        { header: 'User-Agent', operation: 'set', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' },
+        { header: 'Accept', operation: 'set', value: '*/*' },
+        { header: 'Accept-Language', operation: 'set', value: 'zh-CN,zh;q=0.9,en;q=0.8' },
+        { header: 'Accept-Encoding', operation: 'set', value: 'gzip, deflate, br' }
+      ]
+    },
+    condition: {
+      urlFilter: '*://*.bilivideo.com/*',
+      resourceTypes: ['media'],
+      excludedInitiatorDomains: ['www.bilibili.com']
+    }
+  }]
+});
+
 // 使用chrome.downloads.download直接下载
-function downloadMedia(request, sendResponse) {
+async function downloadMedia(request, sendResponse) {
   try {
-    debug('使用chrome.downloads直接下载');
+    debug('开始下载流程');
     
-    // 记录详细请求信息
-    debug('视频下载URL: ' + request.videoUrl);
-    debug('音频下载URL: ' + request.audioUrl);
+    // 获取所有必要的cookie
+    const cookies = await new Promise((resolve, reject) => {
+      chrome.cookies.getAll({ domain: '.bilibili.com' }, (cookies) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error('获取cookies失败: ' + chrome.runtime.lastError.message));
+        } else {
+          resolve(cookies);
+        }
+      });
+    });
+    
+    // 构建cookie字符串
+    const cookieString = cookies
+      .map(cookie => `${cookie.name}=${cookie.value}`)
+      .join('; ');
+    
+    debug('获取到cookie: ' + cookieString);
+    
+    // 构建安全的请求头数组
+    const requestHeaders = [
+      { name: 'Cookie', value: cookieString },
+      { name: 'Referer', value: 'https://www.bilibili.com' },
+      { name: 'User-Agent', value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
+    ];
     
     // 首先下载视频
     const videoFilename = request.filename.replace('.mp4', '_video.mp4');
-    chrome.downloads.download({
-      url: request.videoUrl,
-      filename: videoFilename,
-      // 不传递headers参数，依靠webRequest拦截
-      conflictAction: 'uniquify'
-    }, (videoDownloadId) => {
-      if (chrome.runtime.lastError) {
-        debug('视频下载失败: ' + chrome.runtime.lastError.message);
-        sendResponse({ success: false, error: '视频下载失败: ' + chrome.runtime.lastError.message });
-        return;
-      }
-      
-      debug('视频下载已开始，ID: ' + videoDownloadId);
-      
-      // 然后下载音频
-      const audioFilename = request.filename.replace('.mp4', '_audio.m4a');
+    const videoDownloadId = await new Promise((resolve, reject) => {
+      chrome.downloads.download({
+        url: request.videoUrl,
+        filename: videoFilename,
+        headers: requestHeaders,
+        conflictAction: 'uniquify',
+        saveAs: false
+      }, (downloadId) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error('视频下载失败: ' + chrome.runtime.lastError.message));
+        } else {
+          resolve(downloadId);
+        }
+      });
+    });
+    
+    debug('视频下载已开始，ID: ' + videoDownloadId);
+    
+    // 然后下载音频
+    const audioFilename = request.filename.replace('.mp4', '_audio.m4a');
+    const audioDownloadId = await new Promise((resolve, reject) => {
       chrome.downloads.download({
         url: request.audioUrl,
         filename: audioFilename,
-        // 不传递headers参数，依靠webRequest拦截
-        conflictAction: 'uniquify'
-      }, (audioDownloadId) => {
+        headers: requestHeaders,
+        conflictAction: 'uniquify',
+        saveAs: false
+      }, (downloadId) => {
         if (chrome.runtime.lastError) {
-          debug('音频下载失败: ' + chrome.runtime.lastError.message);
-          sendResponse({ success: false, error: '音频下载失败: ' + chrome.runtime.lastError.message });
-          return;
+          reject(new Error('音频下载失败: ' + chrome.runtime.lastError.message));
+        } else {
+          resolve(downloadId);
         }
-        
-        debug('音频下载已开始，ID: ' + audioDownloadId);
-        sendResponse({ success: true, videoId: videoDownloadId, audioId: audioDownloadId });
       });
     });
+    
+    debug('音频下载已开始，ID: ' + audioDownloadId);
+    sendResponse({ success: true, videoId: videoDownloadId, audioId: audioDownloadId });
     
   } catch (error) {
     debug('下载处理失败: ' + error.message);
     sendResponse({ success: false, error: error.message });
   }
 }
-
-// 使用webRequest拦截并修改请求
-chrome.webRequest.onBeforeSendHeaders.addListener(
-  function(details) {
-    // 只处理来自bilibili视频服务器的请求
-    if (details.url.includes('bilivideo.com')) {
-      debug('拦截到视频请求: ' + details.url);
-      
-      // 修改请求头
-      let foundReferer = false;
-      let foundOrigin = false;
-      let foundRange = false;
-      
-      for (let i = 0; i < details.requestHeaders.length; i++) {
-        if (details.requestHeaders[i].name.toLowerCase() === 'referer') {
-          details.requestHeaders[i].value = 'https://www.bilibili.com';
-          foundReferer = true;
-        }
-        else if (details.requestHeaders[i].name.toLowerCase() === 'origin') {
-          details.requestHeaders[i].value = 'https://www.bilibili.com';
-          foundOrigin = true;
-        }
-        else if (details.requestHeaders[i].name.toLowerCase() === 'range') {
-          foundRange = true;
-        }
-      }
-      
-      if (!foundReferer) {
-        details.requestHeaders.push({ name: 'Referer', value: 'https://www.bilibili.com' });
-      }
-      
-      if (!foundOrigin) {
-        details.requestHeaders.push({ name: 'Origin', value: 'https://www.bilibili.com' });
-      }
-      
-      if (!foundRange) {
-        details.requestHeaders.push({ name: 'Range', value: 'bytes=0-' });
-      }
-      
-      // 添加额外的请求头
-      details.requestHeaders.push({ name: 'Accept', value: '*/*' });
-      details.requestHeaders.push({ name: 'Accept-Language', value: 'zh-CN,zh;q=0.9' });
-      
-      debug('修改后的请求头: ' + JSON.stringify(details.requestHeaders));
-      
-      return { requestHeaders: details.requestHeaders };
-    }
-  },
-  { urls: ["*://*.bilivideo.com/*"] },
-  // Chrome 要求使用extraHeaders来修改某些特殊头部
-  (() => {
-    let params = ["blocking", "requestHeaders"];
-    // 根据浏览器环境添加extraHeaders
-    if (chrome.webRequest.OnBeforeSendHeadersOptions && 
-        chrome.webRequest.OnBeforeSendHeadersOptions.hasOwnProperty('EXTRA_HEADERS')) {
-      params.push('extraHeaders');
-    } else {
-      try {
-        params.push('extraHeaders');
-      } catch (e) {
-        debug('不支持extraHeaders参数');
-      }
-    }
-    return params;
-  })()
-);
 
 // 下载状态监听
 chrome.downloads.onChanged.addListener(function(delta) {
