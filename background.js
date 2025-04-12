@@ -33,34 +33,46 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.action === 'download') {
-    const { videoUrl, audioUrl, filename, headers } = request;
+    debug('收到下载请求: ' + request.filename);
     
-    // 下载视频
-    chrome.downloads.download({
-      url: videoUrl,
-      filename: `${filename}_video.mp4`,
-      headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
-    }, (downloadId) => {
-      if (chrome.runtime.lastError) {
-        console.error('下载视频失败:', chrome.runtime.lastError);
-        sendResponse({ error: chrome.runtime.lastError.message });
-        return;
-      }
+    try {
+      const { videoUrl, audioUrl, filename, headers } = request;
       
-      // 下载音频
+      // 下载视频
       chrome.downloads.download({
-        url: audioUrl,
-        filename: `${filename}_audio.m4a`,
+        url: videoUrl,
+        filename: `${filename}_video.mp4`,
         headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
-      }, (audioDownloadId) => {
+      }, (downloadId) => {
         if (chrome.runtime.lastError) {
-          console.error('下载音频失败:', chrome.runtime.lastError);
+          debug('下载视频失败: ' + chrome.runtime.lastError.message);
           sendResponse({ error: chrome.runtime.lastError.message });
           return;
         }
-        sendResponse({ success: true, videoId: downloadId, audioId: audioDownloadId });
+        
+        debug('开始下载视频: ' + downloadId);
+        
+        // 下载音频
+        chrome.downloads.download({
+          url: audioUrl,
+          filename: `${filename}_audio.m4a`,
+          headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
+        }, (audioDownloadId) => {
+          if (chrome.runtime.lastError) {
+            debug('下载音频失败: ' + chrome.runtime.lastError.message);
+            sendResponse({ error: chrome.runtime.lastError.message });
+            return;
+          }
+          
+          debug('开始下载音频: ' + audioDownloadId);
+          sendResponse({ success: true, videoId: downloadId, audioId: audioDownloadId });
+        });
       });
-    });
+    } catch (error) {
+      debug('处理下载请求失败: ' + error.message);
+      sendResponse({ error: error.message });
+    }
+    
     return true; // 保持消息通道开放
   }
 });
@@ -68,25 +80,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 // 监听 webRequest 以修改请求头
 chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
-    if (details.url.includes('api.bilibili.com') || 
-        details.url.includes('bilivideo.com')) {
-      const headers = details.requestHeaders;
+    try {
+      debug('处理请求头: ' + details.url);
       
-      // 确保包含必要的请求头
-      const requiredHeaders = {
-        'Origin': 'https://www.bilibili.com',
-        'Referer': 'https://www.bilibili.com',
-        'Accept': '*/*',
-        'Accept-Language': 'zh-CN,zh;q=0.9'
-      };
-      
-      for (const [name, value] of Object.entries(requiredHeaders)) {
-        if (!headers.some(h => h.name.toLowerCase() === name.toLowerCase())) {
-          headers.push({ name, value });
+      if (details.url.includes('api.bilibili.com') || 
+          details.url.includes('bilivideo.com')) {
+        const headers = details.requestHeaders;
+        
+        // 确保包含必要的请求头
+        const requiredHeaders = {
+          'Origin': 'https://www.bilibili.com',
+          'Referer': 'https://www.bilibili.com',
+          'Accept': '*/*',
+          'Accept-Language': 'zh-CN,zh;q=0.9'
+        };
+        
+        for (const [name, value] of Object.entries(requiredHeaders)) {
+          if (!headers.some(h => h.name.toLowerCase() === name.toLowerCase())) {
+            headers.push({ name, value });
+            debug('添加请求头: ' + name);
+          }
         }
+        
+        return { requestHeaders: headers };
       }
-      
-      return { requestHeaders: headers };
+    } catch (error) {
+      debug('处理请求头失败: ' + error.message);
     }
   },
   {

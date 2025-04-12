@@ -322,24 +322,33 @@ async function startDownload() {
 // 注入下载按钮
 async function injectDownloadButton() {
   try {
+    debug('开始注入下载按钮');
+    
     // 等待工具栏加载
     const container = await new Promise((resolve) => {
       const observer = new MutationObserver((mutations, obs) => {
-        const toolbar = document.querySelector('.video-toolbar-left');
+        // 使用更精确的选择器，只选择视频页面的工具栏
+        const toolbar = document.querySelector('.video-toolbar .video-toolbar-left');
         if (toolbar) {
+          debug('找到工具栏元素');
           obs.disconnect();
           resolve(toolbar);
         }
       });
       
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
+      // 只观察视频容器内的变化
+      const videoContainer = document.querySelector('.video-container');
+      if (videoContainer) {
+        observer.observe(videoContainer, {
+          childList: true,
+          subtree: true
+        });
+      }
       
       // 如果已经存在，直接返回
-      const existing = document.querySelector('.video-toolbar-left');
+      const existing = document.querySelector('.video-toolbar .video-toolbar-left');
       if (existing) {
+        debug('工具栏已存在');
         observer.disconnect();
         resolve(existing);
       }
@@ -359,6 +368,7 @@ async function injectDownloadButton() {
       
       button.onclick = async () => {
         try {
+          debug('点击下载按钮');
           button.style.pointerEvents = 'none';
           button.querySelector('span').textContent = '准备下载...';
           
@@ -376,8 +386,11 @@ async function injectDownloadButton() {
         }
       };
       
+      // 在工具栏末尾添加按钮
       container.appendChild(button);
       debug('下载按钮已注入');
+    } else {
+      debug('未找到工具栏容器');
     }
   } catch (error) {
     debug('注入下载按钮失败: ' + error.message);
@@ -400,26 +413,36 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
 });
 
-// 页面加载完成后注入按钮
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', injectDownloadButton);
-} else {
-  injectDownloadButton();
-}
-
 // 监听页面变化
 const observer = new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+      // 只在视频页面注入按钮
       const videoPage = document.querySelector('.video-container');
       if (videoPage) {
+        debug('检测到视频页面加载');
         injectDownloadButton();
       }
     }
   }
 });
 
-observer.observe(document.body, {
-  childList: true,
-  subtree: true
-}); 
+// 只观察视频容器内的变化
+const videoContainer = document.querySelector('.video-container');
+if (videoContainer) {
+  observer.observe(videoContainer, {
+    childList: true,
+    subtree: true
+  });
+}
+
+// 页面加载完成后注入按钮
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    debug('DOM加载完成，准备注入按钮');
+    injectDownloadButton();
+  });
+} else {
+  debug('DOM已加载，直接注入按钮');
+  injectDownloadButton();
+} 
