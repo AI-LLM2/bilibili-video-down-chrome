@@ -9,6 +9,8 @@ A Chrome extension that allows you to download videos from Bilibili.
 - Simple UI for selecting video quality
 - Right-click context menu option for quick downloads
 - Supports both older video formats and newer DASH formats
+- Generate wget commands for terminal downloading
+- FFmpeg commands for merging video and audio streams
 
 ## Installation
 
@@ -20,13 +22,25 @@ A Chrome extension that allows you to download videos from Bilibili.
 
 ## Usage
 
-### Using the Popup Interface
+### Using the Browser Download
 
 1. Navigate to a Bilibili video page
 2. Click the extension icon in the toolbar
-3. Select the desired video quality from the dropdown menu
-4. Click "Download Video" to start the download
-5. Choose where to save the file when prompted
+3. Make sure you're on the "Browser Download" tab
+4. Select the desired video quality from the dropdown menu
+5. Click "Download Video" to start the download
+6. Choose where to save the file when prompted
+
+### Using Terminal Download (wget + ffmpeg)
+
+1. Navigate to a Bilibili video page
+2. Click the extension icon in the toolbar
+3. Click the "Terminal Download" tab
+4. Select the desired video quality from the dropdown menu
+5. Click "Generate wget Commands"
+6. Copy the commands using the "Copy Commands" button
+7. Paste and run the commands in your terminal
+8. For DASH format videos, use the provided ffmpeg command to merge the video and audio files
 
 ### Using the Context Menu
 
@@ -39,12 +53,22 @@ A Chrome extension that allows you to download videos from Bilibili.
 
 Most newer Bilibili videos use the DASH format, which separates video and audio streams. For these videos:
 
-1. The extension will download both video and audio streams separately
-2. Files will be named with `_video.mp4` and `_audio.m4a` suffixes
-3. To get a complete video with audio, you'll need to merge these files using a tool like FFmpeg:
+1. When using browser download:
+   - The extension will download both video and audio streams separately
+   - Files will be named with `_video.mp4` and `_audio.m4a` suffixes
+   
+2. When using terminal download:
+   - The extension generates wget commands for both streams
+   - It also provides an ffmpeg command to combine them:
+   
    ```
-   ffmpeg -i video_file.mp4 -i audio_file.m4a -c:v copy -c:a copy output.mp4
+   ffmpeg -i video_file.m4s -i audio_file.m4s -c:v copy -c:a copy -movflags +faststart output.mp4
    ```
+
+## Requirements for Terminal Download
+
+- [wget](https://www.gnu.org/software/wget/) for downloading files via terminal
+- [FFmpeg](https://ffmpeg.org/) for merging video and audio streams
 
 ## Note on Icons
 

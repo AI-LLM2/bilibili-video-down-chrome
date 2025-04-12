@@ -1,10 +1,31 @@
 document.addEventListener('DOMContentLoaded', () => {
   const downloadBtn = document.getElementById('download-btn');
+  const getWgetBtn = document.getElementById('get-wget-btn');
+  const copyCommandsBtn = document.getElementById('copy-commands-btn');
+  const wgetCommandsEl = document.getElementById('wget-commands');
   const statusEl = document.getElementById('status');
   const qualitySelect = document.getElementById('quality-select');
   const videoTitleEl = document.getElementById('video-title');
   const notBilibiliEl = document.getElementById('not-bilibili');
   const bilibiliVideoEl = document.getElementById('bilibili-video');
+  const tabs = document.querySelectorAll('.tab');
+  const tabContents = document.querySelectorAll('.tab-content');
+
+  // Tab switching logic
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      // Update active tab
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      
+      // Show corresponding content
+      const tabId = tab.getAttribute('data-tab');
+      tabContents.forEach(content => {
+        content.classList.remove('active');
+      });
+      document.getElementById(`${tabId}-tab`).classList.add('active');
+    });
+  });
 
   // Check if we're on a Bilibili video page
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -74,5 +95,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 3000);
       });
     });
+  });
+  
+  // Handle get wget commands button click
+  getWgetBtn.addEventListener('click', () => {
+    getWgetBtn.disabled = true;
+    wgetCommandsEl.value = 'Generating commands...';
+    copyCommandsBtn.classList.add('hidden');
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const currentTab = tabs[0];
+      const qualityId = qualitySelect.value;
+
+      chrome.tabs.sendMessage(currentTab.id, { 
+        action: 'getWgetCommands', 
+        qualityId: qualityId 
+      }, (response) => {
+        getWgetBtn.disabled = false;
+        
+        if (chrome.runtime.lastError || !response || !response.success) {
+          wgetCommandsEl.value = 'Failed to generate commands. Please try again.';
+          return;
+        }
+
+        // Display commands in textarea
+        wgetCommandsEl.value = response.commands;
+        copyCommandsBtn.classList.remove('hidden');
+      });
+    });
+  });
+  
+  // Handle copy commands button click
+  copyCommandsBtn.addEventListener('click', () => {
+    wgetCommandsEl.select();
+    document.execCommand('copy');
+    
+    // Indicate copied
+    const originalText = copyCommandsBtn.textContent;
+    copyCommandsBtn.textContent = 'Copied!';
+    setTimeout(() => {
+      copyCommandsBtn.textContent = originalText;
+    }, 2000);
   });
 }); 
