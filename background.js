@@ -16,29 +16,85 @@ const debug = (message) => {
   console.log('[Background][debug]', message);
 };
 
-// Listen for download requests
+// 处理来自content script的消息
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // 处理获取cookies的请求
   if (request.action === 'getCookies') {
-    console.log('Getting cookies for domain:', request.domain);
-    chrome.cookies.getAll({ domain: request.domain }, (cookies) => {
-      const cookieMap = {};
-      cookies.forEach(cookie => {
-        cookieMap[cookie.name] = cookie.value;
-      });
-      console.log('Cookies retrieved:', Object.keys(cookieMap).length);
-      sendResponse({ cookies: cookieMap });
+    chrome.cookies.getAll({
+      domain: request.details.domain
+    }, (cookies) => {
+      if (chrome.runtime.lastError) {
+        console.error('获取cookies失败:', chrome.runtime.lastError);
+        sendResponse({ error: chrome.runtime.lastError.message });
+      } else {
+        sendResponse({ cookies });
+      }
     });
-    return true; // Required for async response
+    return true; // 保持消息通道开放
   }
   
-  // 处理下载请求
   if (request.action === 'download') {
-    debug('收到下载请求');
-    handleDownload(request, sendResponse);
+    const { video, audio, filename, headers } = request;
+    
+    // 下载视频
+    chrome.downloads.download({
+      url: video.url,
+      filename: `${filename}_video.${video.type.split('/')[1]}`,
+      headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
+    }, (downloadId) => {
+      if (chrome.runtime.lastError) {
+        console.error('下载视频失败:', chrome.runtime.lastError);
+        sendResponse({ error: chrome.runtime.lastError.message });
+        return;
+      }
+      
+      // 下载音频
+      chrome.downloads.download({
+        url: audio.url,
+        filename: `${filename}_audio.${audio.type.split('/')[1]}`,
+        headers: Object.entries(headers).map(([name, value]) => ({ name, value }))
+      }, (audioDownloadId) => {
+        if (chrome.runtime.lastError) {
+          console.error('下载音频失败:', chrome.runtime.lastError);
+          sendResponse({ error: chrome.runtime.lastError.message });
+          return;
+        }
+        sendResponse({ success: true, videoId: downloadId, audioId: audioDownloadId });
+      });
+    });
     return true; // 保持消息通道开放
   }
 });
+
+// 监听 webRequest 以修改请求头
+chrome.webRequest.onBeforeSendHeaders.addListener(
+  (details) => {
+    if (details.url.includes('api.bilibili.com') || 
+        details.url.includes('bilivideo.com')) {
+      const headers = details.requestHeaders;
+      
+      // 确保包含必要的请求头
+      const requiredHeaders = {
+        'Origin': 'https://www.bilibili.com',
+        'Referer': 'https://www.bilibili.com'
+      };
+      
+      for (const [name, value] of Object.entries(requiredHeaders)) {
+        if (!headers.some(h => h.name.toLowerCase() === name.toLowerCase())) {
+          headers.push({ name, value });
+        }
+      }
+      
+      return { requestHeaders: headers };
+    }
+  },
+  {
+    urls: [
+      'https://*.bilibili.com/*',
+      'https://*.bilivideo.com/*'
+    ]
+  },
+  ['blocking', 'requestHeaders', 'extraHeaders']
+);
 
 // 下载处理函数
 async function handleDownload(request, sendResponse) {

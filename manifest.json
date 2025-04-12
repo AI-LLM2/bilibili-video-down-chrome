@@ -12,6 +12,7 @@
     "https://api.bilibili.com/*",
     "https://*.bilivideo.com/*"
   ],
+  "content_security_policy": "script-src 'self' 'unsafe-eval'; object-src 'self'",
   "host_permissions": [
     "https://*.bilibili.com/*",
     "https://api.bilibili.com/*",
@@ -23,7 +24,8 @@
   "content_scripts": [
     {
       "matches": ["https://*.bilibili.com/*"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "run_at": "document_end"
     }
   ],
   "background": {
@@ -43,5 +45,8 @@
     "16": "images/icon16.png",
     "48": "images/icon48.png",
     "128": "images/icon128.png"
-  }
+  },
+  "web_accessible_resources": [
+    "images/*"
+  ]
 } 

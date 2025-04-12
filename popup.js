@@ -19,16 +19,11 @@ document.addEventListener('DOMContentLoaded', function() {
       
       // Get the current active tab
       chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-        if (!tabs || tabs.length === 0) {
-          logStatus('无法获取当前标签页', true);
-          return;
-        }
-
         const tab = tabs[0];
         console.log('Current tab:', tab);
         
-        if (!tab.url || !tab.url.includes('bilibili.com/video/')) {
-          logStatus('请在B站视频页面使用此功能', true);
+        if (!tab.url.includes('bilibili.com')) {
+          logStatus('请导航到Bilibili视频页面', true);
           return;
         }
 
@@ -40,11 +35,7 @@ document.addEventListener('DOMContentLoaded', function() {
           
           if (chrome.runtime.lastError) {
             console.error('Runtime error:', chrome.runtime.lastError);
-            if (chrome.runtime.lastError.message.includes('Receiving end does not exist')) {
-              logStatus('请刷新页面后重试', true);
-            } else {
-              logStatus(`错误: ${chrome.runtime.lastError.message}`, true);
-            }
+            logStatus(`错误: ${chrome.runtime.lastError.message}`, true);
             return;
           }
 
